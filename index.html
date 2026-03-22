@@ -75,8 +75,8 @@ html,body{height:100%;font-family:'Urbanist',sans-serif;background:#111;overflow
 #st{background:var(--sur)}
 .mwrap{flex:1;position:relative;overflow:hidden;min-height:0}
 #osmmap{width:100%;height:100%;border:none;display:block}
-.carfloat{position:absolute;width:32px;height:52px;pointer-events:none;transform-origin:50% 50%;filter:drop-shadow(0 4px 8px rgba(0,0,0,.35));z-index:10;background:none;transition:none}
-.map-svg-overlay{position:absolute;inset:0;pointer-events:none;z-index:5}
+/* carfloat now drawn on canvas */
+.map-canvas-overlay{position:absolute;inset:0;pointer-events:none;z-index:5}
 .tsh{background:#fff;border-radius:26px 26px 0 0;flex-shrink:0;padding:16px 16px 28px;box-shadow:0 -3px 20px rgba(0,0,0,.09)}
 .teta{display:flex;align-items:flex-end;gap:5px;margin-bottom:3px}
 .temin{font-size:34px;font-weight:900;color:var(--txt);line-height:1}
@@ -156,7 +156,7 @@ html,body{height:100%;font-family:'Urbanist',sans-serif;background:#111;overflow
 /* Ride in progress screen */
 #s-ride{background:var(--sur)}
 #ridemap{width:100%;height:100%;border:none;display:block}
-.ride-carfloat{position:absolute;width:32px;height:52px;pointer-events:none;transform-origin:50% 50%;filter:drop-shadow(0 4px 8px rgba(0,0,0,.35));z-index:10;background:none;transition:none}
+/* ride-carfloat now drawn on canvas */
 .ride-sheet{background:#fff;border-radius:26px 26px 0 0;flex-shrink:0;padding:16px 16px 28px;box-shadow:0 -3px 20px rgba(0,0,0,.1)}
 .ride-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .ride-dest{flex:1}
@@ -255,8 +255,7 @@ html,body{height:100%;font-family:'Urbanist',sans-serif;background:#111;overflow
 <div class="scr" id="st">
     <div class="mwrap" id="track-mwrap">
     <iframe id="osmmap" allowfullscreen></iframe>
-    <svg class="map-svg-overlay" id="track-svg-overlay"><path id="track-route-path" fill="none" stroke="#1db954" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 5" opacity="0.85"/></svg>
-    <img class="carfloat" id="carfloat" style="position:absolute;left:0;top:0">
+    <canvas id="track-canvas" class="map-canvas-overlay"></canvas>
   </div>
   <div class="tsh pb">
     <div class="teta">
@@ -370,8 +369,7 @@ html,body{height:100%;font-family:'Urbanist',sans-serif;background:#111;overflow
 <div class="scr" id="s-ride">
     <div class="mwrap" id="ride-mwrap">
     <iframe id="ridemap" allowfullscreen></iframe>
-    <svg class="map-svg-overlay" id="ride-svg-overlay"><path id="ride-route-path" fill="none" stroke="#1db954" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 5" opacity="0.85"/></svg>
-    <img class="ride-carfloat" id="ride-carfloat" style="position:absolute;left:0;top:0">
+    <canvas id="ride-canvas" class="map-canvas-overlay"></canvas>
   </div>
   <div class="ride-sheet pb">
     <div class="ride-top">
@@ -845,20 +843,19 @@ function startRide(){
 
   nav("s-ride");
 
-  // animate car along SVG route path for full 30s
   var mw=document.getElementById("ride-mwrap");
   var w=mw?mw.offsetWidth||360:360;
   var h=mw?mw.offsetHeight||260:260;
   clearInterval(rideEtaTmr);
-  var ridePathData=buildRoutePath(w,h,
+  var ridePts=buildRoutePoints(w,h,
     {x:w*0.10,y:h*0.90},
-    [{x:w*0.16,y:h*0.82},{x:w*0.22,y:h*0.74},{x:w*0.28,y:h*0.65},
-     {x:w*0.36,y:h*0.56},{x:w*0.44,y:h*0.47},{x:w*0.52,y:h*0.38},
-     {x:w*0.60,y:h*0.30},{x:w*0.68,y:h*0.23},{x:w*0.76,y:h*0.17}],
-    {x:w*0.84,y:h*0.11}
+    [{x:w*0.18,y:h*0.80},{x:w*0.26,y:h*0.70},{x:w*0.34,y:h*0.60},
+     {x:w*0.42,y:h*0.50},{x:w*0.52,y:h*0.40},{x:w*0.62,y:h*0.30},
+     {x:w*0.72,y:h*0.22},{x:w*0.80,y:h*0.16}],
+    {x:w*0.88,y:h*0.10}
   );
-  document.getElementById("ride-route-path").setAttribute("d",ridePathData);
-  animateCarOnPath("ride-carfloat","ride-route-path",REAL_DURATION*1000,rideEtaTmr,function(t){rideEtaTmr=t;});
+  var rideRaf=animateCarOnCanvas("ride-canvas",ridePts,REAL_DURATION*1000);
+  rideEtaTmr=rideRaf;
 
   // countdown: ticks every real second, but advances ride-clock at rideTotalMin/30 rate
   clearInterval(rideTmr);
@@ -892,33 +889,106 @@ function startRide(){
 }
 
 
-// Build a smooth cubic bezier path through waypoints — mimics real road curves
-function buildRoutePath(w,h,start,waypoints,end){
-  var pts=[start].concat(waypoints).concat([end]);
-  var d="M"+pts[0].x+","+pts[0].y;
-  for(var i=0;i<pts.length-1;i++){
-    var p0=pts[Math.max(0,i-1)];
-    var p1=pts[i];
-    var p2=pts[i+1];
-    var p3=pts[Math.min(pts.length-1,i+2)];
-    // Catmull-Rom to cubic bezier
-    var cp1x=p1.x+(p2.x-p0.x)/6;
-    var cp1y=p1.y+(p2.y-p0.y)/6;
-    var cp2x=p2.x-(p3.x-p1.x)/6;
-    var cp2y=p2.y-(p3.y-p1.y)/6;
-    d+=" C"+cp1x+","+cp1y+" "+cp2x+","+cp2y+" "+p2.x+","+p2.y;
+// Build interpolated point array along a Catmull-Rom spline
+function buildRoutePoints(w,h,start,waypoints,end){
+  var ctrl=[start].concat(waypoints).concat([end]);
+  var pts=[];
+  var steps=120; // total points along the full path
+  var segs=ctrl.length-1;
+  for(var s=0;s<segs;s++){
+    var p0=ctrl[Math.max(0,s-1)];
+    var p1=ctrl[s];
+    var p2=ctrl[s+1];
+    var p3=ctrl[Math.min(ctrl.length-1,s+2)];
+    var segSteps=Math.floor(steps/segs);
+    for(var i=0;i<segSteps;i++){
+      var t=i/segSteps;
+      var t2=t*t, t3=t2*t;
+      var x=0.5*((2*p1.x)+(-p0.x+p2.x)*t+(2*p0.x-5*p1.x+4*p2.x-p3.x)*t2+(-p0.x+3*p1.x-3*p2.x+p3.x)*t3);
+      var y=0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3);
+      pts.push({x:x,y:y});
+    }
   }
-  return d;
+  pts.push(end);
+  return pts;
 }
 
-// Animate an img element along an SVG path using getPointAtLength
-function animateCarOnPath(carId,pathId,durationMs,timerRef,setTimer){
-  var car=document.getElementById(carId);
-  var path=document.getElementById(pathId);
-  if(!car||!path) return;
-  var pathLen=path.getTotalLength();
+// Pre-load the car SVG image for canvas drawing
+var CAR_IMG=null;
+(function(){
+  var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 64" width="40" height="64">'
+    +'<ellipse cx="20" cy="61" rx="11" ry="3" fill="rgba(0,0,0,0.3)"/>'
+    +'<rect x="6" y="8" width="28" height="48" rx="8" fill="#fff"/>'
+    +'<path d="M10 14 Q20 10 30 14 L28 24 Q20 20 12 24 Z" fill="#1a1a2e" opacity="0.9"/>'
+    +'<path d="M12 44 Q20 48 28 44 L28 52 Q20 56 12 52 Z" fill="#1a1a2e" opacity="0.9"/>'
+    +'<rect x="7" y="26" width="6" height="14" rx="2" fill="#1a1a2e" opacity="0.7"/>'
+    +'<rect x="27" y="26" width="6" height="14" rx="2" fill="#1a1a2e" opacity="0.7"/>'
+    +'<rect x="7" y="9" width="7" height="4" rx="2" fill="#fff9c4"/>'
+    +'<rect x="26" y="9" width="7" height="4" rx="2" fill="#fff9c4"/>'
+    +'<rect x="7" y="51" width="7" height="4" rx="2" fill="#ff5252" opacity="0.9"/>'
+    +'<rect x="26" y="51" width="7" height="4" rx="2" fill="#ff5252" opacity="0.9"/>'
+    +'<rect x="3" y="13" width="5" height="9" rx="2" fill="#2d2d2d"/>'
+    +'<rect x="32" y="13" width="5" height="9" rx="2" fill="#2d2d2d"/>'
+    +'<rect x="3" y="42" width="5" height="9" rx="2" fill="#2d2d2d"/>'
+    +'<rect x="32" y="42" width="5" height="9" rx="2" fill="#2d2d2d"/>'
+    +'</svg>';
+  var blob=new Blob([svg],{type:"image/svg+xml"});
+  var url=URL.createObjectURL(blob);
+  CAR_IMG=new Image();
+  CAR_IMG.src=url;
+})();
+
+// Animate car along pre-computed point array, drawn on a canvas overlay
+function animateCarOnCanvas(canvasId, pts, durationMs){
+  var canvas=document.getElementById(canvasId);
+  if(!canvas) return null;
+  // size canvas to its container
+  var rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width||360;
+  canvas.height=rect.height||260;
+  var ctx=canvas.getContext("2d");
   var startTime=null;
-  var prevAngle=null;
+  var raf=null;
+
+  function drawRoute(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // draw dashed green route line
+    ctx.beginPath();
+    ctx.strokeStyle="#1db954";
+    ctx.lineWidth=4;
+    ctx.lineCap="round";
+    ctx.lineJoin="round";
+    ctx.setLineDash([10,6]);
+    ctx.globalAlpha=0.85;
+    for(var i=0;i<pts.length;i++){
+      if(i===0) ctx.moveTo(pts[i].x,pts[i].y);
+      else ctx.lineTo(pts[i].x,pts[i].y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha=1;
+    ctx.setLineDash([]);
+  }
+
+  function drawCar(x,y,angle){
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(angle);
+    if(CAR_IMG && CAR_IMG.complete){
+      ctx.drawImage(CAR_IMG,-16,-26,32,52);
+    } else {
+      // fallback circle if image not loaded
+      ctx.fillStyle="#fff";
+      ctx.beginPath();
+      ctx.arc(0,0,12,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle="#1db954";
+      ctx.font="bold 14px Arial";
+      ctx.textAlign="center";
+      ctx.textBaseline="middle";
+      ctx.fillText("🚗",0,0);
+    }
+    ctx.restore();
+  }
 
   function step(ts){
     if(!startTime) startTime=ts;
@@ -926,29 +996,20 @@ function animateCarOnPath(carId,pathId,durationMs,timerRef,setTimer){
     var t=Math.min(elapsed/durationMs,1);
     // ease-in-out
     var ease=t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
-    var dist=ease*pathLen;
-    var pt=path.getPointAtLength(dist);
-    // get angle from slightly ahead for rotation
-    var ptAhead=path.getPointAtLength(Math.min(dist+8,pathLen));
-    var angle=Math.atan2(ptAhead.y-pt.y,ptAhead.x-pt.x)*180/Math.PI+90;
-    // smooth angle
-    if(prevAngle!==null){
-      var diff=angle-prevAngle;
-      if(diff>180) diff-=360;
-      if(diff<-180) diff+=360;
-      angle=prevAngle+diff*0.3;
-    }
-    prevAngle=angle;
-    car.style.left=pt.x+"px";
-    car.style.top=pt.y+"px";
-    car.style.transform="translate(-50%,-50%) rotate("+angle+"deg)";
+    var idx=Math.min(Math.floor(ease*(pts.length-1)),pts.length-2);
+    var pt=pts[idx];
+    var ptNext=pts[Math.min(idx+3,pts.length-1)];
+    var angle=Math.atan2(ptNext.y-pt.y,ptNext.x-pt.x)+Math.PI/2;
+    drawRoute();
+    drawCar(pt.x,pt.y,angle);
     if(t<1){
-      var raf=requestAnimationFrame(step);
-      setTimer(raf);
+      raf=requestAnimationFrame(step);
     }
   }
-  var raf=requestAnimationFrame(step);
-  setTimer(raf);
+
+  drawRoute();
+  raf=requestAnimationFrame(step);
+  return raf;
 }
 
 
