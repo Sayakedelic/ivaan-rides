@@ -848,11 +848,18 @@ function startRide(){
   var h=mw?mw.offsetHeight||260:260;
   clearInterval(rideEtaTmr);
   var ridePts=buildRoutePoints(w,h,
-    {x:w*0.10,y:h*0.90},
-    [{x:w*0.18,y:h*0.80},{x:w*0.26,y:h*0.70},{x:w*0.34,y:h*0.60},
-     {x:w*0.42,y:h*0.50},{x:w*0.52,y:h*0.40},{x:w*0.62,y:h*0.30},
-     {x:w*0.72,y:h*0.22},{x:w*0.80,y:h*0.16}],
-    {x:w*0.88,y:h*0.10}
+    {x:w*0.10,y:h*0.85},
+    [
+      {x:w*0.10,y:h*0.65},  // head north
+      {x:w*0.10,y:h*0.50},
+      {x:w*0.28,y:h*0.50},  // turn east on main road
+      {x:w*0.50,y:h*0.50},
+      {x:w*0.50,y:h*0.32},  // turn north
+      {x:w*0.50,y:h*0.20},
+      {x:w*0.68,y:h*0.20},  // turn east again
+      {x:w*0.82,y:h*0.20}
+    ],
+    {x:w*0.88,y:h*0.12}
   );
   var rideRaf=animateCarOnCanvas("ride-canvas",ridePts,REAL_DURATION*1000);
   rideEtaTmr=rideRaf;
@@ -890,6 +897,23 @@ function startRide(){
 
 
 // Build interpolated point array along a Catmull-Rom spline
+// roundRect polyfill for older Safari
+if(!CanvasRenderingContext2D.prototype.roundRect){
+  CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){
+    this.beginPath();
+    this.moveTo(x+r,y);
+    this.lineTo(x+w-r,y);
+    this.quadraticCurveTo(x+w,y,x+w,y+r);
+    this.lineTo(x+w,y+h-r);
+    this.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    this.lineTo(x+r,y+h);
+    this.quadraticCurveTo(x,y+h,x,y+h-r);
+    this.lineTo(x,y+r);
+    this.quadraticCurveTo(x,y,x+r,y);
+    this.closePath();
+    return this;
+  };
+}
 function buildRoutePoints(w,h,start,waypoints,end){
   var ctrl=[start].concat(waypoints).concat([end]);
   var pts=[];
@@ -913,30 +937,9 @@ function buildRoutePoints(w,h,start,waypoints,end){
   return pts;
 }
 
-// Pre-load the car SVG image for canvas drawing
-var CAR_IMG=null;
-(function(){
-  var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 64" width="40" height="64">'
-    +'<ellipse cx="20" cy="61" rx="11" ry="3" fill="rgba(0,0,0,0.3)"/>'
-    +'<rect x="6" y="8" width="28" height="48" rx="8" fill="#fff"/>'
-    +'<path d="M10 14 Q20 10 30 14 L28 24 Q20 20 12 24 Z" fill="#1a1a2e" opacity="0.9"/>'
-    +'<path d="M12 44 Q20 48 28 44 L28 52 Q20 56 12 52 Z" fill="#1a1a2e" opacity="0.9"/>'
-    +'<rect x="7" y="26" width="6" height="14" rx="2" fill="#1a1a2e" opacity="0.7"/>'
-    +'<rect x="27" y="26" width="6" height="14" rx="2" fill="#1a1a2e" opacity="0.7"/>'
-    +'<rect x="7" y="9" width="7" height="4" rx="2" fill="#fff9c4"/>'
-    +'<rect x="26" y="9" width="7" height="4" rx="2" fill="#fff9c4"/>'
-    +'<rect x="7" y="51" width="7" height="4" rx="2" fill="#ff5252" opacity="0.9"/>'
-    +'<rect x="26" y="51" width="7" height="4" rx="2" fill="#ff5252" opacity="0.9"/>'
-    +'<rect x="3" y="13" width="5" height="9" rx="2" fill="#2d2d2d"/>'
-    +'<rect x="32" y="13" width="5" height="9" rx="2" fill="#2d2d2d"/>'
-    +'<rect x="3" y="42" width="5" height="9" rx="2" fill="#2d2d2d"/>'
-    +'<rect x="32" y="42" width="5" height="9" rx="2" fill="#2d2d2d"/>'
-    +'</svg>';
-  var blob=new Blob([svg],{type:"image/svg+xml"});
-  var url=URL.createObjectURL(blob);
-  CAR_IMG=new Image();
-  CAR_IMG.src=url;
-})();
+// Car image as base64 data URI — works everywhere, no blob/CORS issues
+var CAR_IMG=new Image();
+CAR_IMG.src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MCA2NCI+PGVsbGlwc2UgY3g9IjIwIiBjeT0iNjEiIHJ4PSIxMSIgcnk9IjMiIGZpbGw9InJnYmEoMCwwLDAsMC4zKSIvPjxyZWN0IHg9IjYiIHk9IjgiIHdpZHRoPSIyOCIgaGVpZ2h0PSI0OCIgcng9IjgiIGZpbGw9IiNmZmZmZmYiLz48cGF0aCBkPSJNMTAgMTQgUTIwIDEwIDMwIDE0IEwyOCAyNCBRMjAgMjAgMTIgMjQgWiIgZmlsbD0iIzFhMWEyZSIgb3BhY2l0eT0iMC45Ii8+PHBhdGggZD0iTTEyIDQ0IFEyMCA0OCAyOCA0NCBMMjggNTIgUTIwIDU2IDEyIDUyIFoiIGZpbGw9IiMxYTFhMmUiIG9wYWNpdHk9IjAuOSIvPjxyZWN0IHg9IjciIHk9IjI2IiB3aWR0aD0iNiIgaGVpZ2h0PSIxNCIgcng9IjIiIGZpbGw9IiMxYTFhMmUiIG9wYWNpdHk9IjAuNyIvPjxyZWN0IHg9IjI3IiB5PSIyNiIgd2lkdGg9IjYiIGhlaWdodD0iMTQiIHJ4PSIyIiBmaWxsPSIjMWExYTJlIiBvcGFjaXR5PSIwLjciLz48cmVjdCB4PSI3IiB5PSI5IiB3aWR0aD0iNyIgaGVpZ2h0PSI0IiByeD0iMiIgZmlsbD0iI2ZmZjljNCIvPjxyZWN0IHg9IjI2IiB5PSI5IiB3aWR0aD0iNyIgaGVpZ2h0PSI0IiByeD0iMiIgZmlsbD0iI2ZmZjljNCIvPjxyZWN0IHg9IjciIHk9IjUxIiB3aWR0aD0iNyIgaGVpZ2h0PSI0IiByeD0iMiIgZmlsbD0iI2ZmNTI1MiIvPjxyZWN0IHg9IjI2IiB5PSI1MSIgd2lkdGg9IjciIGhlaWdodD0iNCIgcng9IjIiIGZpbGw9IiNmZjUyNTIiLz48cmVjdCB4PSIzIiB5PSIxMyIgd2lkdGg9IjUiIGhlaWdodD0iOSIgcng9IjIiIGZpbGw9IiMzMzMiLz48cmVjdCB4PSIzMiIgeT0iMTMiIHdpZHRoPSI1IiBoZWlnaHQ9IjkiIHJ4PSIyIiBmaWxsPSIjMzMzIi8+PHJlY3QgeD0iMyIgeT0iNDIiIHdpZHRoPSI1IiBoZWlnaHQ9IjkiIHJ4PSIyIiBmaWxsPSIjMzMzIi8+PHJlY3QgeD0iMzIiIHk9IjQyIiB3aWR0aD0iNSIgaGVpZ2h0PSI5IiByeD0iMiIgZmlsbD0iIzMzMyIvPjxyZWN0IHg9IjE0IiB5PSIyNyIgd2lkdGg9IjEyIiBoZWlnaHQ9IjEwIiByeD0iMyIgZmlsbD0iIzFhMWEyZSIgb3BhY2l0eT0iMC4xNSIvPjwvc3ZnPg==";
 
 // Animate car along pre-computed point array, drawn on a canvas overlay
 function animateCarOnCanvas(canvasId, pts, durationMs){
@@ -973,19 +976,55 @@ function animateCarOnCanvas(canvasId, pts, durationMs){
     ctx.save();
     ctx.translate(x,y);
     ctx.rotate(angle);
-    if(CAR_IMG && CAR_IMG.complete){
-      ctx.drawImage(CAR_IMG,-16,-26,32,52);
+    if(CAR_IMG && CAR_IMG.complete && CAR_IMG.naturalWidth>0){
+      // draw shadow
+      ctx.shadowColor="rgba(0,0,0,0.4)";
+      ctx.shadowBlur=8;
+      ctx.shadowOffsetY=3;
+      ctx.drawImage(CAR_IMG,-18,-29,36,58);
     } else {
-      // fallback circle if image not loaded
-      ctx.fillStyle="#fff";
+      // canvas-drawn car fallback — always visible
+      ctx.shadowColor="rgba(0,0,0,0.4)";
+      ctx.shadowBlur=8;
+      ctx.shadowOffsetY=3;
+      // body
+      ctx.fillStyle="#ffffff";
       ctx.beginPath();
-      ctx.arc(0,0,12,0,Math.PI*2);
+      ctx.roundRect(-14,-24,28,48,7);
       ctx.fill();
+      ctx.shadowColor="transparent";
+      // windshield
+      ctx.fillStyle="#1a1a2e";
+      ctx.globalAlpha=0.85;
+      ctx.beginPath();
+      ctx.moveTo(-10,-18); ctx.quadraticCurveTo(0,-22,10,-18);
+      ctx.lineTo(8,-10); ctx.quadraticCurveTo(0,-13,-8,-10); ctx.closePath();
+      ctx.fill();
+      // rear window
+      ctx.beginPath();
+      ctx.moveTo(-8,12); ctx.quadraticCurveTo(0,16,8,12);
+      ctx.lineTo(8,20); ctx.quadraticCurveTo(0,24,-8,20); ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha=1;
+      // headlights
+      ctx.fillStyle="#fffde7";
+      ctx.fillRect(-13,-23,7,4);
+      ctx.fillRect(6,-23,7,4);
+      // tail lights
+      ctx.fillStyle="#ff1744";
+      ctx.fillRect(-13,19,7,4);
+      ctx.fillRect(6,19,7,4);
+      // wheels
+      ctx.fillStyle="#333";
+      ctx.fillRect(-18,-18,5,9);
+      ctx.fillRect(13,-18,5,9);
+      ctx.fillRect(-18,9,5,9);
+      ctx.fillRect(13,9,5,9);
+      // green dot on roof (Ivaan marker)
       ctx.fillStyle="#1db954";
-      ctx.font="bold 14px Arial";
-      ctx.textAlign="center";
-      ctx.textBaseline="middle";
-      ctx.fillText("🚗",0,0);
+      ctx.beginPath();
+      ctx.arc(0,-2,5,0,Math.PI*2);
+      ctx.fill();
     }
     ctx.restore();
   }
