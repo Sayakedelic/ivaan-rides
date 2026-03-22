@@ -634,26 +634,37 @@ function req(){
 }
 
 function startTracking(){
-  clearInterval(ET); clearInterval(AT);
-  var mw=document.querySelector(".mwrap");
+  clearInterval(ET); cancelAnimationFrame(AT); AT=null;
+
+  var mw=document.getElementById("track-mwrap");
+  if(!mw){mw=document.querySelector(".mwrap");}
   var w=mw.offsetWidth||360, h=mw.offsetHeight||260;
-  var pin=document.getElementById("carfloat");
-  var pts=[{l:w*0.18,t:h*0.80},{l:w*0.35,t:h*0.62},{l:w*0.55,t:h*0.42},{l:w*0.72,t:h*0.25}];
-  var si=0;
-  pin.style.left=pts[0].l+"px"; pin.style.top=pts[0].t+"px";
+
   document.getElementById("em").textContent="5";
   document.getElementById("el").textContent="min away";
   document.getElementById("ts").innerHTML="Ivaan is <b>on his way</b> to pick you up";
-  AT=setInterval(function(){
-    si++;
-    if(si>=pts.length){clearInterval(AT);return;}
-    pin.style.left=pts[si].l+"px"; pin.style.top=pts[si].t+"px";
-  },7000);
+
+  // Road-like waypoints with turns
+  var trackPts=buildRoutePoints(w,h,
+    {x:w*0.12,y:h*0.88},
+    [
+      {x:w*0.12,y:h*0.65},
+      {x:w*0.12,y:h*0.55},
+      {x:w*0.30,y:h*0.55},
+      {x:w*0.42,y:h*0.55},
+      {x:w*0.42,y:h*0.40},
+      {x:w*0.50,y:h*0.40}
+    ],
+    {x:w*0.52,y:h*0.38}
+  );
+  AT=animateCarOnCanvas("track-canvas", trackPts, 25000);
+
+  // ETA countdown — ticks every 6 real seconds = 1 min ETA
   var eta=5;
   ET=setInterval(function(){
     eta--;
     if(eta<=0){
-      clearInterval(ET); clearInterval(AT);
+      clearInterval(ET); cancelAnimationFrame(AT); AT=null;
       document.getElementById("em").innerHTML="&#127881;";
       document.getElementById("el").textContent="";
       document.getElementById("ts").innerHTML="Ivaan has <b>arrived!</b> Hop in!";
@@ -945,31 +956,39 @@ CAR_IMG.src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvM
 function animateCarOnCanvas(canvasId, pts, durationMs){
   var canvas=document.getElementById(canvasId);
   if(!canvas) return null;
-  // size canvas to its container
-  var rect=canvas.parentElement.getBoundingClientRect();
-  canvas.width=rect.width||360;
-  canvas.height=rect.height||260;
+  // size canvas — use offsetWidth for reliability
+  var par=canvas.parentElement;
+  var cw=par.offsetWidth||par.clientWidth||360;
+  var ch=par.offsetHeight||par.clientHeight||260;
+  canvas.width=cw;
+  canvas.height=ch;
   var ctx=canvas.getContext("2d");
   var startTime=null;
   var raf=null;
 
   function drawRoute(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    // draw dashed green route line
+    if(!pts||pts.length<2) return;
     ctx.beginPath();
     ctx.strokeStyle="#1db954";
-    ctx.lineWidth=4;
+    ctx.lineWidth=5;
     ctx.lineCap="round";
     ctx.lineJoin="round";
-    ctx.setLineDash([10,6]);
-    ctx.globalAlpha=0.85;
-    for(var i=0;i<pts.length;i++){
-      if(i===0) ctx.moveTo(pts[i].x,pts[i].y);
-      else ctx.lineTo(pts[i].x,pts[i].y);
-    }
+    ctx.setLineDash([12,7]);
+    ctx.globalAlpha=0.9;
+    ctx.moveTo(pts[0].x,pts[0].y);
+    for(var i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
     ctx.stroke();
-    ctx.globalAlpha=1;
+    // You-marker (green dot at end of route)
     ctx.setLineDash([]);
+    ctx.globalAlpha=1;
+    ctx.beginPath();
+    ctx.arc(pts[pts.length-1].x, pts[pts.length-1].y, 8, 0, Math.PI*2);
+    ctx.fillStyle="#1db954";
+    ctx.fill();
+    ctx.strokeStyle="#fff";
+    ctx.lineWidth=2.5;
+    ctx.stroke();
   }
 
   function drawCar(x,y,angle){
